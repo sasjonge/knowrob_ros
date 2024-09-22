@@ -47,6 +47,12 @@ RUN git fetch && \
 # RUN git fetch && \
 #    git checkout 6cf51f3210509f4e3db362c93fe753319b389cac
 # Source and build workspace
+WORKDIR ${ROS_WS}
 RUN colcon build --merge-install --symlink-install
+
+#WORKDIR ${ROS_WS}/src
+#RUN git clone https://github.com/sasjonge/knowrob_ros.git -b ros2
+#WORKDIR ${ROS_WS}
+#RUN colcon build --merge-install --symlink-install
 
 RUN echo "source ${ROS_WS}/install/setup.bash" >> ${HOME}/.bashrc

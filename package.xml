@@ -12,20 +12,12 @@
   <url type="website">http://www.knowrob.org</url>
   <url type="bugtracker">https://github.com/knowrob/knowrob/issues</url>
 
-  <!-- ROS2 build tool -->
-  <buildtool_depend>ament_cmake</buildtool_depend>
+  <test_depend>ament_copyright</test_depend>
+  <test_depend>ament_flake8</test_depend>
+  <test_depend>ament_pep257</test_depend>
+  <test_depend>python3-pytest</test_depend>
 
-  <!-- Dependencies -->
-  <depend>rclcpp</depend>
-  <depend>geometry_msgs</depend>
-  <depend>action_msgs</depend>
-  <depend>visualization_msgs</depend>
-  <depend>spdlog</depend>
-  <depend>libmongoc-dev</depend>
-  <depend>fmt</depend>
-
-  <!-- Export dependencies -->
-  <exec_depend>rclcpp</exec_depend>
-  <exec_depend>message_runtime</exec_depend>
-  <exec_depend>action_msgs</exec_depend>
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
 </package>

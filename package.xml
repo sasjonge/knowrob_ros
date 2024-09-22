@@ -1,38 +1,31 @@
 <?xml version="1.0"?>
-<package format="2">
+<package format="3">
   <name>knowrob_ros</name>
-  <version>2.0.0</version>
-  <description>KnowRob is a knowledge processing framework for robots. It has originally
-    been developed in the IAS group at Technische Universitaet Muenchen,
-    Germany and is currently maintained by Daniel Beßler at the Institute
-    for Artificial Intelligence in Bremen, Germany.
-
-    It provides tools for knowledge acquisition, representation and reasoning
-    that are tailored to the demands in mobile robotics.
-  </description>
+  <version>1.0.0</version>
+  <description>KnowRob ROS is a ROS wrapper for KnowRob 2.0.0</description>
   
-  <author>Moritz Tenorth</author>
-  <author>Daniel Beßler</author>
-
-  <maintainer email="danielb@uni-bremen.de">Daniel Beßler</maintainer>
+  <author>Sascha jongebloed</author>
+  <maintainer email="sasjonge@uni-bremen.de">Sascha jongebloed</maintainer>
 
   <license>BSD</license>
 
   <url type="website">http://www.knowrob.org</url>
   <url type="bugtracker">https://github.com/knowrob/knowrob/issues</url>
 
-  <buildtool_depend>catkin</buildtool_depend>
-  <build_depend>message_generation</build_depend>
-  <build_depend>geometry_msgs</build_depend>
-  <build_depend>actionlib_msgs</build_depend>
-  <build_depend>visualization_msgs</build_depend>
-  <exec_depend>message_runtime</exec_depend>
-  <exec_depend>actionlib</exec_depend>
+  <!-- ROS2 build tool -->
+  <buildtool_depend>ament_cmake</buildtool_depend>
 
-  <depend>roslib</depend>
-  <depend>roscpp</depend>
-  <depend>knowrob</depend>
+  <!-- Dependencies -->
+  <depend>rclcpp</depend>
+  <depend>geometry_msgs</depend>
+  <depend>action_msgs</depend>
+  <depend>visualization_msgs</depend>
   <depend>spdlog</depend>
   <depend>libmongoc-dev</depend>
   <depend>fmt</depend>
+
+  <!-- Export dependencies -->
+  <exec_depend>rclcpp</exec_depend>
+  <exec_depend>message_runtime</exec_depend>
+  <exec_depend>action_msgs</exec_depend>
 </package>

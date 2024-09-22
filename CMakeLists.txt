@@ -1,62 +1,44 @@
-cmake_minimum_required(VERSION 3.5.0)
-set(CMAKE_CXX_FLAGS "-Wswitch -std=c++0x -pthread ${CMAKE_CXX_FLAGS} -Wno-undef -lspdlog")
-set(CMAKE_CXX_STANDARD 17)
-
+cmake_minimum_required(VERSION 3.5)
 project(knowrob_ros
-        DESCRIPTION "A Knowledge Base System for Cognition-enabled Robots")
+        DESCRIPTION "A ROS wrapper for Knowrob 2.0.0"
+        VERSION 1.0.0)
 
-IF (NOT WIN32)
-    INCLUDE(FindPkgConfig)
-ENDIF ()
+# Set C++ standard
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-find_package(catkin REQUIRED COMPONENTS
-    roscpp
-    rospy
-    std_msgs
-    message_generation
-    actionlib
-    actionlib_msgs
-    knowrob
-)
+# Find dependencies
+find_package(ament_cmake REQUIRED)
+find_package(rclcpp REQUIRED)
+find_package(std_msgs REQUIRED)
+find_package(action_msgs REQUIRED)
 find_package(spdlog REQUIRED)
+find_package(fmt REQUIRED)
 
-add_message_files(
-    DIRECTORY msg
-    FILES
-    KeyValuePair.msg
-    GraphQueryMessage.msg
-    GraphAnswerMessage.msg
-    EventToken.msg
-)
-add_action_files(
-    DIRECTORY action
-    FILES
-    AskAll.action
-    AskOne.action
-    AskIncremental.action
-    AskIncrementalNextSolution.action
-    Tell.action
-)
-add_service_files(
-    DIRECTORY srv
-    FILES
-    AskIncrementalFinish.srv
-)
-generate_messages(DEPENDENCIES
-    std_msgs
-    actionlib_msgs
+# Message and service files
+rosidl_generate_interfaces(${PROJECT_NAME}
+    "msg/KeyValuePair.msg"
+    "msg/GraphQueryMessage.msg"
+    "msg/GraphAnswerMessage.msg"
+    "msg/EventToken.msg"
+    "action/AskAll.action"
+    "action/AskOne.action"
+    "action/AskIncremental.action"
+    "action/AskIncrementalNextSolution.action"
+    "action/Tell.action"
+    "srv/AskIncrementalFinish.srv"
 )
 
-catkin_package(CATKIN_DEPENDS roscpp roslib knowrob)
+# Include directories
+include_directories(include)
 
-include_directories(include ${catkin_INCLUDE_DIRS})
+# Executables and libraries
+add_executable(${PROJECT_NAME}_node src/knowrob_ros_node.cpp)
+ament_target_dependencies(${PROJECT_NAME}_node rclcpp std_msgs spdlog)
 
-## ROS Interface ###
-add_executable(knowrob-ros
-    src/ROSInterface.cpp
-)
-add_dependencies(knowrob-ros ${catkin_EXPORTED_TARGETS})
+# Install targets
+install(TARGETS ${PROJECT_NAME}_node
+    DESTINATION lib/${PROJECT_NAME})
 
-target_link_libraries(knowrob-ros ${catkin_LIBRARIES} spdlog::spdlog)
-
-install(TARGETS knowrob-ros RUNTIME DESTINATION bin)
+# Ament package
+ament_package()

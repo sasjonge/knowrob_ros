@@ -6,6 +6,12 @@ ENV ROS_WS=${HOME}/workspace/ros
 
 #============= Install extra software packages =============#
 
+# Install older python version
+# TODO: It seems this is necessary? Else i get this error:
+# AttributeError: module 'pkgutil' has no attribute 'ImpImporter'. Did you mean: 'zipimporter'?
+#RUN apt update && \
+#    apt install -y python3.8 python3.8-dev python3.8-venv
+
 # Install Redland, Raptor2, libmongoc, spdlog, fmt, gtest
 USER root
 RUN apt update && \
@@ -42,17 +48,15 @@ RUN git clone https://github.com/knowrob/knowrob.git -b dev
 WORKDIR ${ROS_WS}/src/knowrob
 RUN git fetch && \
     git checkout 6cf51f3210509f4e3db362c93fe753319b389cac
-# Fix KnowRob ROS Commit
-# WORKDIR ${ROS_WS}/src/knowrob_ros
-# RUN git fetch && \
-#    git checkout 6cf51f3210509f4e3db362c93fe753319b389cac
-# Source and build workspace
 WORKDIR ${ROS_WS}
-RUN colcon build --merge-install --symlink-install
+RUN colcon build
 
-#WORKDIR ${ROS_WS}/src
-#RUN git clone https://github.com/sasjonge/knowrob_ros.git -b ros2
-#WORKDIR ${ROS_WS}
-#RUN colcon build --merge-install --symlink-install
+# Add knowrob_ros python package
+WORKDIR ${ROS_WS}/src
+RUN git clone https://github.com/sasjonge/knowrob_ros.git -b ros2
+WORKDIR ${ROS_WS}
+RUN colcon build
 
 RUN echo "source ${ROS_WS}/install/setup.bash" >> ${HOME}/.bashrc
+RUN echo "source ${ROS_WS}/install/setup.bash" >> ${HOME}/.bashrc
+

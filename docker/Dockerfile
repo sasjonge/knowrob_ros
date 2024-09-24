@@ -57,6 +57,6 @@ RUN git clone https://github.com/sasjonge/knowrob_ros.git -b ros2
 WORKDIR ${ROS_WS}
 RUN colcon build
 
-RUN echo "source ${ROS_WS}/install/setup.bash" >> ${HOME}/.bashrc
+RUN echo "source /opt/ros/jazzy/setup.bash" >> ${HOME}/.bashrc
 RUN echo "source ${ROS_WS}/install/setup.bash" >> ${HOME}/.bashrc
 

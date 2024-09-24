@@ -20,6 +20,7 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
+            'knowrob_ros_interface = knowrob_ros.knowrob_ros_interface:main',
         ],
     },
 )

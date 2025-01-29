@@ -43,7 +43,7 @@ ENV LD_LIBRARY_PATH=/usr/lib/swi-prolog/lib/x86_64-linux
 # Source: https://github.com/knowrob/knowrob
 WORKDIR ${ROS_WS}/src
 RUN git clone https://github.com/knowrob/knowrob.git -b dev
-# RUN git clone https://github.com/knowrob/knowrob_ros.git -b ros2
+RUN git clone https://github.com/knowrob/knowrob_ros.git -b ros2
 # Fix KnowRob Commit
 WORKDIR ${ROS_WS}/src/knowrob
 RUN git fetch && \

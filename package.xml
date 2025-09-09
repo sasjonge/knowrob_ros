@@ -2,40 +2,49 @@
 <package format="2">
   <name>knowrob_ros</name>
   <version>2.0.0</version>
-  <description>KnowRob is a knowledge processing framework for robots. It has originally
-    been developed in the IAS group at Technische Universitaet Muenchen,
-    Germany and is currently maintained by Daniel Beßler at the Institute
-    for Artificial Intelligence in Bremen, Germany.
-
-    It provides tools for knowledge acquisition, representation and reasoning
-    that are tailored to the demands in mobile robotics.
+  <description>
+    knowrob_ros is a ros wrapper around KnowRob, a knowledge processing framework 
+    for robots. It is currently maintained by Daniel Beßler at the AICOR group in Bremen, Germany.
   </description>
-  
-  <author>Moritz Tenorth</author>
-  <author>Daniel Beßler</author>
 
-  <maintainer email="danielb@uni-bremen.de">Daniel Beßler</maintainer>
+  <maintainer email="jongebloed@uni-bremen.de">Sascha Jongebloed</maintainer>
+  <author>Daniel Beßler</author>
 
   <license>BSD</license>
 
   <url type="website">http://www.knowrob.org</url>
   <url type="bugtracker">https://github.com/knowrob/knowrob/issues</url>
 
-  <buildtool_depend>catkin</buildtool_depend>
-  <build_depend>message_generation</build_depend>
-  <build_depend>geometry_msgs</build_depend>
-  <build_depend>actionlib_msgs</build_depend>
-  <build_depend>visualization_msgs</build_depend>
-  <exec_depend>message_runtime</exec_depend>
-  <exec_depend>actionlib</exec_depend>
-  <test_depend>rostest</test_depend>
-  <test_depend>python3</test_depend>
+  <!-- Ament build system -->
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <!-- ROSIDL generators for messages / services / actions -->
+  <buildtool_depend>rosidl_default_generators</buildtool_depend>
 
-  <depend>roslib</depend>
-  <depend>roscpp</depend>
-  <depend>knowrob</depend>
-  <depend>spdlog</depend>
-  <depend>rospy</depend>
-  <depend>libmongoc-dev</depend>
-  <depend>fmt</depend>
+  <!-- Build-time dependencies -->
+  <build_depend>rclcpp</build_depend>
+  <build_depend>std_msgs</build_depend>
+  <build_depend>action_msgs</build_depend>
+  <build_depend>knowrob</build_depend>
+  <build_depend>spdlog</build_depend>
+
+  <!-- Runtime dependencies -->
+  <exec_depend>rclcpp</exec_depend>
+  <exec_depend>std_msgs</exec_depend>
+  <exec_depend>action_msgs</exec_depend>
+  <exec_depend>knowrob</exec_depend>
+  <exec_depend>spdlog</exec_depend>
+  <!-- ROSIDL runtime support -->
+  <exec_depend>rosidl_default_runtime</exec_depend>
+
+  <!-- Optional: if you still ship Python scripts, add this or switch to ament_python -->
+  <!--
+  <buildtool_depend>ament_python</buildtool_depend>
+  <exec_depend>rclpy</exec_depend>
+  -->
+
+  <!-- Testing (use ament_lint_auto, ament_cmake_gtest, or ament_pytest) -->
+  <!--
+  <test_depend>ament_lint_auto</test_depend>
+  <test_depend>ament_cmake_gtest</test_depend>
+  -->
 </package>

@@ -1,103 +1,87 @@
-cmake_minimum_required(VERSION 3.5.0)
-set(CMAKE_CXX_FLAGS "-Wswitch -std=c++0x -pthread ${CMAKE_CXX_FLAGS} -Wno-undef -lspdlog")
-set(CMAKE_CXX_STANDARD 17)
+cmake_minimum_required(VERSION 3.5)
+project(knowrob_ros VERSION 0.1.0 LANGUAGES CXX)
 
-project(knowrob_ros
-        DESCRIPTION "A Knowledge Base System for Cognition-enabled Robots")
-
-IF (NOT WIN32)
-    INCLUDE(FindPkgConfig)
-ENDIF ()
-
-find_package(catkin REQUIRED COMPONENTS
-    roscpp
-    rospy
-    std_msgs
-    message_generation
-    actionlib
-    actionlib_msgs
-    knowrob
-)
-find_package(spdlog REQUIRED)
-find_package(rostest REQUIRED)
-
-catkin_python_setup()
-
-## =============================
-## ROS message generation
-## =============================
-add_message_files(
-    DIRECTORY msg
-    FILES
-    KeyValuePair.msg
-    ModalFrame.msg
-    Triple.msg
-    TellMessage.msg
-    GraphQueryMessage.msg
-    GraphAnswerMessage.msg
-)
-add_action_files(
-    DIRECTORY action
-    FILES
-    AskAll.action
-    AskOne.action
-    AskIncremental.action
-    AskIncrementalNextSolution.action
-    Tell.action
-)
-add_service_files(
-    DIRECTORY srv
-    FILES
-    AskIncrementalFinish.srv
-    ExportTriples.srv
-)
-generate_messages(DEPENDENCIES
-    std_msgs
-    actionlib_msgs
-)
-
-## =============================
-## Catkin package
-## =============================
-catkin_package(CATKIN_DEPENDS roscpp roslib rospy knowrob message_runtime)
-
-include_directories(include ${catkin_INCLUDE_DIRS})
-
-## ROS Interface ###
-add_executable(knowrob-ros
-    src/ROSInterface.cpp
-)
-add_dependencies(knowrob-ros 
-    ${catkin_EXPORTED_TARGETS}
-    knowrob_ros_generate_messages_cpp
-)
-
-target_link_libraries(knowrob-ros ${catkin_LIBRARIES} spdlog::spdlog)
-
-## =============================
-## Python library installation
-## =============================
-
-
-# list all executable python and shell scripts for installation
-install(PROGRAMS
-   scripts/*
-   DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
-)
-
-## =============================
-## Install binaries
-## =============================
-
-install(TARGETS knowrob-ros RUNTIME DESTINATION bin)
-
-## =============================
-## Install test files
-## =============================
-
-if (CATKIN_ENABLE_TESTING)
-  catkin_add_nosetests(
-    test/test_knowrob_ros_lib.test
-    DEPENDENCIES ${catkin_EXPORTED_TARGETS}
-  )
+# ——— C++ Standard ————————————————————
+if (NOT CMAKE_CXX_STANDARD)
+  set(CMAKE_CXX_STANDARD 17)
 endif()
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wswitch -pthread -Wno-undef")
+
+# ——— find dependencies —————————————————
+find_package(ament_cmake REQUIRED)
+find_package(rclcpp REQUIRED)
+find_package(std_msgs REQUIRED)
+find_package(action_msgs REQUIRED)
+find_package(rosidl_default_generators REQUIRED)
+find_package(spdlog REQUIRED)
+# If you have a ROS 2 port of knowrob installed:
+find_package(knowrob REQUIRED)
+
+# ——— Interface definition  ———————————
+# Generate messages, services, and actions
+rosidl_generate_interfaces(${PROJECT_NAME}
+  # messages
+  "msg/KeyValuePair.msg"
+  "msg/ModalFrame.msg"
+  "msg/Triple.msg"
+  "msg/TellMessage.msg"
+  "msg/GraphQueryMessage.msg"
+  "msg/GraphAnswerMessage.msg"
+  # services
+  "srv/AskIncrementalFinish.srv"
+  "srv/ExportTriples.srv"
+  # actions
+  "action/AskAll.action"
+  "action/AskOne.action"
+  "action/AskIncremental.action"
+  "action/AskIncrementalNextSolution.action"
+  "action/Tell.action"
+  DEPENDENCIES std_msgs action_msgs
+)
+ament_export_dependencies(rosidl_default_runtime)
+
+# ——— Include directories ————————————
+include_directories(
+  include
+  ${rclcpp_INCLUDE_DIRS}
+  ${std_msgs_INCLUDE_DIRS}
+)
+
+# ——— C++ node ——————————————————————
+add_executable(knowrob_ros_node src/ROSInterface.cpp)
+ament_target_dependencies(knowrob_ros_node
+  rclcpp
+  std_msgs
+  spdlog::spdlog
+  knowrob
+)
+# Link generated type support into your node:
+rosidl_target_interfaces(knowrob_ros_node
+  ${PROJECT_NAME} "rosidl_typesupport_cpp"
+)
+
+install(
+  TARGETS knowrob_ros_node
+  DESTINATION lib/${PROJECT_NAME}
+)
+
+# ——— Python scripts (installation) —————————
+# Installs all executables in scripts/ into the package share directory
+install(
+  DIRECTORY scripts
+  DESTINATION share/${PROJECT_NAME}/scripts
+  FILES_MATCHING PATTERN "*.py"
+  PERMISSIONS OWNER_EXECUTE OWNER_WRITE OWNER_READ
+              GROUP_READ GROUP_EXECUTE
+              WORLD_READ WORLD_EXECUTE
+)
+
+# ——— Testing (optional) ——————————————
+if (BUILD_TESTING)
+  find_package(ament_lint_auto REQUIRED)
+  ament_lint_auto_find_test_dependencies()
+  # e.g. ament_add_pytest_test(…)
+endif()
+
+# ——— ament package macro —————————————
+ament_package()

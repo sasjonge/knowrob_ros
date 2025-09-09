@@ -1,390 +1,439 @@
-/*
- * Copyright (c) 2023, Sascha Jongebloed
- * All rights reserved.
- *
- * This file is part of KnowRob, please consult
- * https://github.com/knowrob/knowrob for license details.
- */
+#include "knowrob_ros/ROSInterface.hpp"
+#include <knowrob/queries/QueryParser.h>
+#include <knowrob/queries/QueryError.h>
+#include <knowrob/formulas/ModalFormula.h>
+#include <knowrob/terms/ListTerm.h>
+#include <boost/any.hpp>
 
-#include "ROSInterface.h"
-// KnowRob
-#include "knowrob/knowrob.h"
-#include "knowrob/Logger.h"
-#include "knowrob/KnowledgeBase.h"
-#include "knowrob/queries/QueryParser.h"
-#include "knowrob/queries/QueryError.h"
-#include "knowrob/formulas/ModalFormula.h"
-#include "knowrob/terms/ListTerm.h"
-#include "knowrob/queries/QueryTree.h"
-// ROS
-#include <ros/ros.h>
-#include <ros/console.h>
-#include <ros/package.h>
-#include <knowrob_ros/GraphAnswerMessage.h>
-#include <knowrob_ros/GraphQueryMessage.h>
-#include <knowrob_ros/KeyValuePair.h>
-#include <knowrob_ros/AskAllAction.h>
-#include "knowrob/integration/InterfaceUtils.h"
-#include <boost/property_tree/json_parser.hpp>
-#include <utility>
-
-using namespace knowrob;
+using namespace std::placeholders;
 using namespace knowrob_ros;
+using namespace knowrob;
 
-ROSInterface::ROSInterface(const boost::property_tree::ptree &config)
-		: askall_action_server_(nh_, "knowrob/askall", boost::bind(&ROSInterface::executeAskAllCB, this, _1), false),
-		  askone_action_server_(nh_, "knowrob/askone", boost::bind(&ROSInterface::executeAskOneCB, this, _1), false),
-		  askincremental_action_server_(nh_, "knowrob/askincremental",
-										boost::bind(&ROSInterface::executeAskIncrementalCB, this, _1), false),
-		  askincremental_next_solution_action_server_(nh_, "knowrob/askincremental_next_solution",
-													  boost::bind(&ROSInterface::executeAskIncrementalNextSolutionCB,
-																  this, _1), false),
-		  tell_action_server_(nh_, "knowrob/tell", boost::bind(&ROSInterface::executeTellCB, this, _1), false),
-		  kb_(KnowledgeBase::create(config)) {
-	
+ROSInterface::ROSInterface(const boost::property_tree::ptree & config)
+: Node("knowrob_node")
+, kb_(KnowledgeBase::create(config))
+{
+  // --- AskAll ---
+  askall_action_server_ = rclcpp_action::create_server<AskAll>(
+    this,
+    "knowrob/askall",
+    std::bind(&ROSInterface::handle_goal_askall, this, _1, _2),
+    std::bind(&ROSInterface::handle_cancel_askall, this, _1),
+    std::bind(&ROSInterface::handle_accepted_askall, this, _1));
 
-	// Start all action servers
-	askall_action_server_.start();
-	askone_action_server_.start();
-	askincremental_action_server_.start();
-	askincremental_next_solution_action_server_.start();
-	tell_action_server_.start();
-	ask_incremental_finish_service_ = nh_.advertiseService("knowrob/askincremental_finish",
-														   &ROSInterface::handleAskIncrementalFinish, this);
-	export_server_ = nh_.advertiseService("knowrob/export", &ROSInterface::executeExportCB, this);
+  // --- AskOne ---
+  askone_action_server_ = rclcpp_action::create_server<AskOne>(
+    this,
+    "knowrob/askone",
+    std::bind(&ROSInterface::handle_goal_askone, this, _1, _2),
+    std::bind(&ROSInterface::handle_cancel_askone, this, _1),
+    std::bind(&ROSInterface::handle_accepted_askone, this, _1));
+
+  // --- AskIncremental ---
+  askincremental_action_server_ = rclcpp_action::create_server<AskIncremental>(
+    this,
+    "knowrob/askincremental",
+    std::bind(&ROSInterface::handle_goal_askincremental, this, _1, _2),
+    std::bind(&ROSInterface::handle_cancel_askincremental, this, _1),
+    std::bind(&ROSInterface::handle_accepted_askincremental, this, _1));
+
+  // --- AskIncrementalNextSolution ---
+  askincremental_next_solution_action_server_ =
+    rclcpp_action::create_server<AskIncrementalNext>(
+      this,
+      "knowrob/askincremental_next_solution",
+      std::bind(&ROSInterface::handle_goal_askincremental_next, this, _1, _2),
+      std::bind(&ROSInterface::handle_cancel_askincremental_next, this, _1),
+      std::bind(&ROSInterface::handle_accepted_askincremental_next, this, _1));
+
+  // --- Tell ---
+  tell_action_server_ = rclcpp_action::create_server<Tell>(
+    this,
+    "knowrob/tell",
+    std::bind(&ROSInterface::handle_goal_tell, this, _1, _2),
+    std::bind(&ROSInterface::handle_cancel_tell, this, _1),
+    std::bind(&ROSInterface::handle_accepted_tell, this, _1));
+
+  // --- Services ---
+  ask_incremental_finish_srv_ = this->create_service<srv::AskIncrementalFinish>(
+    "knowrob/askincremental_finish",
+    std::bind(&ROSInterface::handle_ask_incremental_finish, this, _1, _2, _3));
+
+  export_srv_ = this->create_service<srv::ExportTriples>(
+    "knowrob/export",
+    std::bind(&ROSInterface::handle_export_triples, this, _1, _2, _3));
+
+  RCLCPP_INFO(get_logger(), "[KnowRob] ROS2 interface ready.");
 }
 
-ROSInterface::~ROSInterface() = default;
-
-// Function to convert GraphQueryMessage to std::unordered_map
-std::unordered_map<std::string, boost::any> ROSInterface::translateModalityFrameMessage(const ModalFrame &frame) {
-	std::unordered_map<std::string, boost::any> options;
-
-	options["epistemicOperator"] = int(frame.epistemicOperator);
-	options["aboutAgentIRI"] = frame.aboutAgentIRI;
-	options["confidence"] = frame.confidence;
-	options["temporalOperator"] = int(frame.temporalOperator);
-	options["minPastTimestamp"] = frame.minPastTimestamp;
-	options["maxPastTimestamp"] = frame.maxPastTimestamp;
-
-	return options;
+std::unordered_map<std::string, boost::any>
+ROSInterface::translateModalityFrameMessage(
+  const msg::ModalFrame & frame)
+{
+  std::unordered_map<std::string, boost::any> opts;
+  opts["epistemicOperator"] = static_cast<int>(frame.epistemic_operator);
+  opts["aboutAgentIRI"]     = frame.about_agent_iri;
+  opts["confidence"]        = frame.confidence;
+  opts["temporalOperator"]  = static_cast<int>(frame.temporal_operator);
+  opts["minPastTimestamp"]  = frame.min_past_timestamp;
+  opts["maxPastTimestamp"]  = frame.max_past_timestamp;
+  return opts;
 }
 
-GraphAnswerMessage ROSInterface::createGraphAnswer(std::shared_ptr<const AnswerYes> answer) {
-	const BindingsPtr &substitution = answer->substitution();
-	GraphAnswerMessage graphAnswer;
-	for (const auto &pair: *substitution) {
-		KeyValuePair kvpair;
-		kvpair.key = pair.first;
-		TermPtr term = pair.second.second;
-		// Stringstream for list terms
-		std::stringstream ss;
-
-		if (term->termType() == TermType::ATOMIC) {
-			auto atomic = std::static_pointer_cast<Atomic>(term);
-			switch (atomic->atomicType()) {
-				case AtomicType::STRING:
-				case AtomicType::ATOM:
-					kvpair.type = KeyValuePair::TYPE_STRING;
-					kvpair.value_string = atomic->stringForm().data();
-					break;
-				case AtomicType::NUMERIC: {
-					auto numeric = std::static_pointer_cast<Numeric>(atomic);
-					switch (numeric->xsdType()) {
-						case XSDType::FLOAT:
-						case XSDType::DOUBLE:
-							kvpair.type = KeyValuePair::TYPE_FLOAT;
-							kvpair.value_float = numeric->asDouble();
-							break;
-						case XSDType::NON_NEGATIVE_INTEGER:
-						case XSDType::UNSIGNED_INT:
-						case XSDType::INTEGER:
-							kvpair.type = KeyValuePair::TYPE_INT;
-							kvpair.value_int = numeric->asInteger();
-							break;
-						case XSDType::UNSIGNED_LONG:
-						case XSDType::LONG:
-							kvpair.type = KeyValuePair::TYPE_LONG;
-							kvpair.value_long = numeric->asLong();
-							break;
-						case XSDType::UNSIGNED_SHORT:
-						case XSDType::SHORT:
-							kvpair.type = KeyValuePair::TYPE_INT;
-							kvpair.value_int = numeric->asShort();
-							break;
-						case XSDType::BOOLEAN:
-						case XSDType::STRING:
-						case XSDType::LAST:
-							break;
-					}
-					break;
-				}
-			}
-		} else if (term->termType() == TermType::FUNCTION) {
-			// TODO: Can this happen? If yes implement it
-		} else if (term->termType() == TermType::VARIABLE) {
-			// TODO: Can this happen? If yes implement it
-		}
-
-		graphAnswer.substitution.push_back(kvpair);
-	}
-	return graphAnswer;
+msg::GraphAnswerMessage
+ROSInterface::createGraphAnswer(std::shared_ptr<const AnswerYes> answer)
+{
+  msg::GraphAnswerMessage out;
+  for (auto & p : *answer->substitution()) {
+    msg::KeyValuePair kv;
+    kv.key = p.first;
+    auto term = p.second.second;
+    switch (term->termType()) {
+      case TermType::ATOMIC: {
+        auto a = std::static_pointer_cast<Atomic>(term);
+        if (a->atomicType()==AtomicType::STRING ||
+            a->atomicType()==AtomicType::ATOM)
+        {
+          kv.type         = msg::KeyValuePair::TYPE_STRING;
+          kv.value_string = a->stringForm();
+        } else {
+          auto num = std::static_pointer_cast<Numeric>(a);
+          switch (num->xsdType()) {
+            case XSDType::FLOAT:
+            case XSDType::DOUBLE:
+              kv.type         = msg::KeyValuePair::TYPE_FLOAT;
+              kv.value_float  = num->asDouble();
+              break;
+            default:
+              kv.type        = msg::KeyValuePair::TYPE_INT;
+              kv.value_int   = static_cast<int32_t>(num->asLong());
+              break;
+          }
+        }
+        break;
+      }
+      default:
+        break;
+    }
+    out.substitution.push_back(kv);
+  }
+  return out;
 }
 
-void ROSInterface::executeAskAllCB(const AskAllGoalConstPtr &goal) {
-
-	FormulaPtr phi(QueryParser::parse(goal->query.queryString));
-
-	FormulaPtr mPhi = InterfaceUtils::applyModality(translateModalityFrameMessage(goal->query.frame), phi);
-
-	auto ctx = std::make_shared<QueryContext>(QUERY_FLAG_ALL_SOLUTIONS);
-	auto resultStream = kb_->submitQuery(mPhi, ctx);
-	auto resultQueue = resultStream->createQueue();
-
-	int numSolutions_ = 0;
-	AskAllResult result;
-	while (true) {
-		auto nextResult = resultQueue->pop_front();
-
-		if (nextResult->indicatesEndOfEvaluation()) {
-			break;
-		} else if (nextResult->tokenType() == TokenType::ANSWER_TOKEN) {
-			auto answer = std::static_pointer_cast<const Answer>(nextResult);
-			if (answer->isPositive()) {
-				auto positiveAnswer = std::static_pointer_cast<const AnswerYes>(answer);
-				if (positiveAnswer->substitution()->empty()) {
-					numSolutions_ = 1;
-					break;
-				} else {
-					// Push one answer
-					GraphAnswerMessage graphAns = createGraphAnswer(positiveAnswer);
-					result.answers.push_back(graphAns);
-					numSolutions_ += 1;
-					// publish feedback
-					AskAllFeedback feedback;
-					feedback.numberOfSolutions = numSolutions_;
-					askall_action_server_.publishFeedback(feedback);
-				}
-			}
-		}
-	}
-
-	if (numSolutions_ == 0) {
-		result.status = AskAllResult::FALSE;
-	} else {
-		result.status = AskAllResult::TRUE;
-	}
-	askall_action_server_.setSucceeded(result);
+// ----------------- AskAll -----------------
+rclcpp_action::GoalResponse
+ROSInterface::handle_goal_askall(
+  const rclcpp_action::GoalUUID &,
+  std::shared_ptr<const AskAll::Goal>)
+{
+  RCLCPP_INFO(get_logger(), "AskAll goal received");
+  return rclcpp_action::GoalResponse::ACCEPT_AND_EXECUTE;
 }
 
-void ROSInterface::executeAskIncrementalCB(const AskIncrementalGoalConstPtr &goal) {
-	std::lock_guard<std::mutex> lock(query_mutex_);
-
-	FormulaPtr phi(QueryParser::parse(goal->query.queryString));
-
-	FormulaPtr mPhi = InterfaceUtils::applyModality(translateModalityFrameMessage(goal->query.frame), phi);
-
-	auto ctx = std::make_shared<QueryContext>(QUERY_FLAG_ALL_SOLUTIONS);
-	auto resultStream = kb_->submitQuery(mPhi, ctx);
-	auto resultQueue = resultStream->createQueue();
-
-	// Store result queue for execution of next solution
-	query_results_[next_query_id_] = resultQueue;
-
-	// Result, feedback
-	AskIncrementalResult result;
-	AskIncrementalFeedback feedback;
-
-	// Publish feedback
-	feedback.finished = true;
-	askincremental_action_server_.publishFeedback(feedback);
-
-	// Publish result
-	result.queryId = next_query_id_;
-	result.status = AskIncrementalResult::TRUE;
-	askincremental_action_server_.setSucceeded(result);
-
-	next_query_id_ += 1;
+rclcpp_action::CancelResponse
+ROSInterface::handle_cancel_askall(
+  const std::shared_ptr<GoalHandleAskAll>)
+{
+  RCLCPP_INFO(get_logger(), "AskAll goal canceled");
+  return rclcpp_action::CancelResponse::ACCEPT;
 }
 
-void ROSInterface::executeAskIncrementalNextSolutionCB(const AskIncrementalNextSolutionGoalConstPtr &goal) {
-	// Lock mutex
-	std::lock_guard<std::mutex> lock(query_mutex_);
-
-	// Define feedback, result and isTrue
-	AskIncrementalNextSolutionFeedback feedback;
-	AskIncrementalNextSolutionResult result;
-	bool isTrue = false;
-
-	// Get result queue for query ID
-	auto resultQueue = query_results_[goal->queryId];
-
-	// Check if query ID is valid
-	if (resultQueue == nullptr) {
-		result.status = AskIncrementalNextSolutionResult::INVALID_QUERY_ID;
-		askincremental_next_solution_action_server_.setAborted(result);
-		return;
-	}
-
-	// Retrieve next solution
-	auto nextResult = resultQueue->pop_front();
-	if (nextResult->tokenType() == TokenType::ANSWER_TOKEN) {
-		auto answer = std::static_pointer_cast<const Answer>(nextResult);
-		if (answer->isPositive()) {
-			auto positiveAnswer = std::static_pointer_cast<const AnswerYes>(answer);
-			isTrue = true;
-			if (!positiveAnswer->substitution()->empty()) {
-				// Publish feedback
-				result.answer = createGraphAnswer(positiveAnswer);
-			}
-		}
-	} else if (nextResult->indicatesEndOfEvaluation()) {
-		// Remove id
-		query_results_.erase(goal->queryId);
-	}
-
-	// If there is no next solution set status to false
-	if (isTrue) {
-		result.status = AskIncrementalNextSolutionResult::TRUE;
-	} else {
-		result.status = AskIncrementalNextSolutionResult::FALSE;
-	}
-
-	// Publish finish feedback
-	feedback.finished = true;
-	askincremental_next_solution_action_server_.publishFeedback(feedback);
-	// Publish result
-	askincremental_next_solution_action_server_.setSucceeded(result);
-	
+void
+ROSInterface::handle_accepted_askall(
+  const std::shared_ptr<GoalHandleAskAll> goal_handle)
+{
+  // spin off in its own thread
+  std::thread(&ROSInterface::execute_askall, this, goal_handle).detach();
 }
 
-bool ROSInterface::handleAskIncrementalFinish(AskIncrementalFinish::Request &req,
-											  AskIncrementalFinish::Response &res) {
-	std::lock_guard<std::mutex> lock(query_mutex_);
+void
+ROSInterface::execute_askall(
+  const std::shared_ptr<GoalHandleAskAll> goal_handle)
+{
+  auto goal = goal_handle->get_goal();
+  FormulaPtr phi = QueryParser::parse(goal->query.query_string);
+  FormulaPtr mPhi = InterfaceUtils::applyModality(
+    translateModalityFrameMessage(goal->query.frame), phi);
 
-	// Check if the query ID exists
-	auto it = query_results_.find(req.queryId);
-	if (it != query_results_.end()) {
-		// Remove the query ID from the map
-		query_results_.erase(it);
-		res.success = true;
-	} else {
-		res.success = false;
-	}
+  auto ctx = std::make_shared<QueryContext>(QUERY_FLAG_ALL_SOLUTIONS);
+  auto stream = kb_->submitQuery(mPhi, ctx);
+  auto queue  = stream->createQueue();
 
-	return true;
+  auto feedback = std::make_shared<AskAll::Feedback>();
+  auto result   = std::make_shared<AskAll::Result>();
+  int count = 0;
+
+  while (true) {
+    auto tok = queue->pop_front();
+    if (tok->indicatesEndOfEvaluation()) {
+      break;
+    } else if (tok->tokenType()==TokenType::ANSWER_TOKEN) {
+      auto ans = std::static_pointer_cast<const AnswerYes>(tok);
+      auto ga  = createGraphAnswer(ans);
+      result->answers.push_back(ga);
+      ++count;
+      feedback->number_of_solutions = count;
+      goal_handle->publish_feedback(*feedback);
+    }
+  }
+
+  result->status = (count>0)
+    ? AskAll::Result::TRUE
+    : AskAll::Result::FALSE;
+
+  goal_handle->succeed(*result);
 }
 
-void ROSInterface::executeAskOneCB(const AskOneGoalConstPtr &goal) {
-
-	FormulaPtr phi(QueryParser::parse(goal->query.queryString));
-
-	FormulaPtr mPhi = InterfaceUtils::applyModality(translateModalityFrameMessage(goal->query.frame), phi);
-
-	auto ctx = std::make_shared<QueryContext>(QUERY_FLAG_ALL_SOLUTIONS);
-	auto resultStream = kb_->submitQuery(mPhi, ctx);
-	auto resultQueue = resultStream->createQueue();
-
-	AskOneResult result;
-	auto nextResult = resultQueue->pop_front();
-
-	if (nextResult->indicatesEndOfEvaluation()) {
-		result.status = AskOneResult::FALSE;
-	} else if (nextResult->tokenType() == TokenType::ANSWER_TOKEN) {
-		auto answer = std::static_pointer_cast<const Answer>(nextResult);
-		if (answer->isPositive()) {
-			auto positiveAnswer = std::static_pointer_cast<const AnswerYes>(answer);
-			result.status = AskOneResult::TRUE;
-			GraphAnswerMessage answer = createGraphAnswer(positiveAnswer);
-			result.answer = answer;
-		}
-	}
-
-	// Publish feedback
-	AskOneFeedback feedback;
-	feedback.finished = true;
-	askone_action_server_.publishFeedback(feedback);
-	// Publish result
-	askone_action_server_.setSucceeded(result);
+// ----------------- AskOne -----------------
+rclcpp_action::GoalResponse
+ROSInterface::handle_goal_askone(
+  const rclcpp_action::GoalUUID &,
+  std::shared_ptr<const AskOne::Goal>)
+{
+  RCLCPP_INFO(get_logger(), "AskOne goal received");
+  return rclcpp_action::GoalResponse::ACCEPT_AND_EXECUTE;
 }
 
-void ROSInterface::executeTellCB(const TellGoalConstPtr &goal) {
-
-	// Create a vector of Formulas
-	std::vector<FormulaPtr> formulas;
-	// For each triple
-	for (const auto &triple: goal->tell.triples) {
-		// Create a vector of Terms for subject and object
-		std::vector<TermPtr> terms;
-		// Add subject (always IRIAtom) (make stringview before)
-		terms.push_back(IRIAtom::Tabled(triple.subject.data()));
-		// Add object (can be IRIAtom, String or Numeric)
-		// If triple.object.data has no surrounding single quotes, add quotes
-		// create a stringview
-		std::string objectString = triple.object.data();
-		if (objectString.front() != '\'' && objectString.back() != '\'') {
-			objectString = "'" + objectString + "'";
-		}
-		TermPtr objectTerm = QueryParser::parseConstant(objectString);
-		terms.push_back(objectTerm);
-		// Add to formulas
-		formulas.push_back(std::make_shared<Predicate>(triple.predicate, terms));
-	}
-	// Create conjunction of all formulas
-	FormulaPtr phi = std::make_shared<Conjunction>(formulas);
-	
-	FormulaPtr mPhi = InterfaceUtils::applyModality(translateModalityFrameMessage(goal->tell.frame), phi);
-
-	bool success = InterfaceUtils::assertStatements(kb_, {mPhi});
-
-	TellResult result;
-	TellFeedback feedback;
-	if (success) {
-		result.status = TellResult::TRUE;
-	} else {
-		result.status = TellResult::TELL_FAILED;
-	}
-	feedback.finished = true;
-	tell_action_server_.publishFeedback(feedback);
-	tell_action_server_.setSucceeded(result);
+rclcpp_action::CancelResponse
+ROSInterface::handle_cancel_askone(
+  const std::shared_ptr<GoalHandleAskOne>)
+{
+  RCLCPP_INFO(get_logger(), "AskOne goal canceled");
+  return rclcpp_action::CancelResponse::ACCEPT;
 }
 
-bool ROSInterface::executeExportCB(ExportTriples::Request &req,
-	ExportTriples::Response &res) {
-		// If req.format is empty or rdfxml
-		if (req.format == "rdfxml") {
-			kb_->exportTo(req.path, semweb::RDF_XML);
-		} else if (req.format == "turtle") {
-			kb_->exportTo(req.path, semweb::TURTLE);
-		} else {
-			// If the format is not supported, return false
-			ROS_ERROR("Export format not supported: %s", req.format.c_str());
-			res.success = false;
-			return false;
-		}
-		res.success = true;
-		return true;
+void
+ROSInterface::handle_accepted_askone(
+  const std::shared_ptr<GoalHandleAskOne> goal_handle)
+{
+  std::thread(&ROSInterface::execute_askone, this, goal_handle).detach();
 }
 
-int main(int argc, char **argv) {
-	InitKnowRob(argc, argv);
+void
+ROSInterface::execute_askone(
+  const std::shared_ptr<GoalHandleAskOne> goal_handle)
+{
+  auto goal = goal_handle->get_goal();
+  FormulaPtr phi = QueryParser::parse(goal->query.query_string);
+  FormulaPtr mPhi = InterfaceUtils::applyModality(
+    translateModalityFrameMessage(goal->query.frame), phi);
 
-	// Load settings files
-	boost::property_tree::ptree config = InterfaceUtils::loadSettings();
-	// configure logging
-	auto log_config = config.get_child_optional("logging");
-	if (log_config) {
-		Logger::loadConfiguration(log_config.value());
-	}
+  auto ctx = std::make_shared<QueryContext>(QUERY_FLAG_ALL_SOLUTIONS);
+  auto stream = kb_->submitQuery(mPhi, ctx);
+  auto queue  = stream->createQueue();
 
-	try {
-		ros::init(argc, argv, "knowrob_node");
-		ROSInterface ros_interface(config);
-		KB_INFO("[KnowRob] ROS node started.");
-		ros::spin();
-	}
-	catch (std::exception &e) {
-		KB_ERROR("an exception occurred: {}.", e.what());
-		return EXIT_FAILURE;
-	}
+  auto feedback = std::make_shared<AskOne::Feedback>();
+  auto result   = std::make_shared<AskOne::Result>();
+
+  auto tok = queue->pop_front();
+  if (tok->tokenType()==TokenType::ANSWER_TOKEN) {
+    auto ans = std::static_pointer_cast<const AnswerYes>(tok);
+    result->status = AskOne::Result::TRUE;
+    result->answer = createGraphAnswer(ans);
+  } else {
+    result->status = AskOne::Result::FALSE;
+  }
+  feedback->finished = true;
+  goal_handle->publish_feedback(*feedback);
+  goal_handle->succeed(*result);
+}
+
+// ----------------- AskIncremental -----------------
+rclcpp_action::GoalResponse
+ROSInterface::handle_goal_askincremental(
+  const rclcpp_action::GoalUUID &,
+  std::shared_ptr<const AskIncremental::Goal>)
+{
+  RCLCPP_INFO(get_logger(), "AskIncremental goal received");
+  return rclcpp_action::GoalResponse::ACCEPT_AND_EXECUTE;
+}
+
+rclcpp_action::CancelResponse
+ROSInterface::handle_cancel_askincremental(
+  const std::shared_ptr<GoalHandleAskIncremental>)
+{
+  RCLCPP_INFO(get_logger(), "AskIncremental canceled");
+  return rclcpp_action::CancelResponse::ACCEPT;
+}
+
+void
+ROSInterface::handle_accepted_askincremental(
+  const std::shared_ptr<GoalHandleAskIncremental> goal_handle)
+{
+  std::thread(&ROSInterface::execute_askincremental, this, goal_handle).detach();
+}
+
+void
+ROSInterface::execute_askincremental(
+  const std::shared_ptr<GoalHandleAskIncremental> goal_handle)
+{
+  auto goal = goal_handle->get_goal();
+  FormulaPtr phi = QueryParser::parse(goal->query.query_string);
+  FormulaPtr mPhi = InterfaceUtils::applyModality(
+    translateModalityFrameMessage(goal->query.frame), phi);
+
+  auto ctx = std::make_shared<QueryContext>(QUERY_FLAG_ALL_SOLUTIONS);
+  auto stream = kb_->submitQuery(mPhi, ctx);
+  auto queue  = stream->createQueue();
+
+  // store for next-solution calls
+  static uint32_t next_id = 1;
+  {
+    std::lock_guard<std::mutex> lock(query_mutex_);
+    query_results_[next_id] = queue;
+  }
+
+  auto feedback = std::make_shared<AskIncremental::Feedback>();
+  auto result   = std::make_shared<AskIncremental::Result>();
+  result->query_id = next_id++;
+  result->status   = AskIncremental::Result::TRUE;
+  feedback->finished = true;
+  goal_handle->publish_feedback(*feedback);
+  goal_handle->succeed(*result);
+}
+
+// ----------------- AskIncrementalNextSolution -----------------
+rclcpp_action::GoalResponse
+ROSInterface::handle_goal_askincremental_next(
+  const rclcpp_action::GoalUUID &,
+  std::shared_ptr<const AskIncrementalNext::Goal>)
+{
+  RCLCPP_INFO(get_logger(), "AskIncrementalNextSolution request");
+  return rclcpp_action::GoalResponse::ACCEPT_AND_EXECUTE;
+}
+
+rclcpp_action::CancelResponse
+ROSInterface::handle_cancel_askincremental_next(
+  const std::shared_ptr<GoalHandleAskIncrementalNext>)
+{
+  return rclcpp_action::CancelResponse::ACCEPT;
+}
+
+void
+ROSInterface::handle_accepted_askincremental_next(
+  const std::shared_ptr<GoalHandleAskIncrementalNext> goal_handle)
+{
+  std::thread(&ROSInterface::execute_askincremental_next, this, goal_handle).detach();
+}
+
+void
+ROSInterface::execute_askincremental_next(
+  const std::shared_ptr<GoalHandleAskIncrementalNext> goal_handle)
+{
+  auto goal = goal_handle->get_goal();
+  auto feedback = std::make_shared<AskIncrementalNext::Feedback>();
+  auto result   = std::make_shared<AskIncrementalNext::Result>();
+
+  std::shared_ptr<QueryResultQueue> queue;
+  {
+    std::lock_guard<std::mutex> lock(query_mutex_);
+    auto it = query_results_.find(goal->query_id);
+    if (it == query_results_.end()) {
+      result->status = AskIncrementalNext::Result::INVALID_QUERY_ID;
+      goal_handle->publish_feedback(*feedback);
+      goal_handle->succeed(*result);
+      return;
+    }
+    queue = it->second;
+  }
+
+  auto tok = queue->pop_front();
+  if (tok->tokenType()==TokenType::ANSWER_TOKEN) {
+    auto ans = std::static_pointer_cast<const AnswerYes>(tok);
+    result->status = AskIncrementalNext::Result::TRUE;
+    result->answer = createGraphAnswer(ans);
+  } else {
+    result->status = AskIncrementalNext::Result::FALSE;
+    std::lock_guard<std::mutex> lock(query_mutex_);
+    query_results_.erase(goal->query_id);
+  }
+
+  feedback->finished = true;
+  goal_handle->publish_feedback(*feedback);
+  goal_handle->succeed(*result);
+}
+
+// ----------------- Tell -----------------
+rclcpp_action::GoalResponse
+ROSInterface::handle_goal_tell(
+  const rclcpp_action::GoalUUID &,
+  std::shared_ptr<const Tell::Goal>)
+{
+  return rclcpp_action::GoalResponse::ACCEPT_AND_EXECUTE;
+}
+
+rclcpp_action::CancelResponse
+ROSInterface::handle_cancel_tell(
+  const std::shared_ptr<GoalHandleTell>)
+{
+  return rclcpp_action::CancelResponse::ACCEPT;
+}
+
+void
+ROSInterface::handle_accepted_tell(
+  const std::shared_ptr<GoalHandleTell> goal_handle)
+{
+  std::thread(&ROSInterface::execute_tell, this, goal_handle).detach();
+}
+
+void
+ROSInterface::execute_tell(
+  const std::shared_ptr<GoalHandleTell> goal_handle)
+{
+  auto goal = goal_handle->get_goal();
+  std::vector<FormulaPtr> formulas;
+  for (auto & t : goal->tell.triples) {
+    std::vector<TermPtr> terms;
+    terms.push_back(IRIAtom::Tabled(t.subject));
+    std::string obj = t.object;
+    if (obj.front()!='\'' || obj.back()!='\'') {
+      obj = "'" + obj + "'";
+    }
+    terms.push_back(QueryParser::parseConstant(obj));
+    formulas.push_back(std::make_shared<Predicate>(t.predicate, terms));
+  }
+  FormulaPtr phi =
+    std::make_shared<Conjunction>(formulas);
+  FormulaPtr mPhi = InterfaceUtils::applyModality(
+    translateModalityFrameMessage(goal->tell.frame), phi);
+
+  bool ok = InterfaceUtils::assertStatements(kb_, {mPhi});
+
+  auto feedback = std::make_shared<Tell::Feedback>();
+  auto result   = std::make_shared<Tell::Result>();
+  result->status   = ok
+    ? Tell::Result::TRUE
+    : Tell::Result::TELL_FAILED;
+  feedback->finished = true;
+  goal_handle->publish_feedback(*feedback);
+  goal_handle->succeed(*result);
+}
+
+// ----------------- Services -----------------
+void
+ROSInterface::handle_ask_incremental_finish(
+  const std::shared_ptr<rmw_request_id_t>,
+  const std::shared_ptr<srv::AskIncrementalFinish::Request> req,
+  std::shared_ptr<srv::AskIncrementalFinish::Response> res)
+{
+  std::lock_guard<std::mutex> lock(query_mutex_);
+  res->success = (query_results_.erase(req->query_id) > 0);
+}
+
+void
+ROSInterface::handle_export_triples(
+  const std::shared_ptr<rmw_request_id_t>,
+  const std::shared_ptr<srv::ExportTriples::Request> req,
+  std::shared_ptr<srv::ExportTriples::Response> res)
+{
+  if (req->format == "rdfxml") {
+    kb_->exportTo(req->path, semweb::RDF_XML);
+    res->success = true;
+  } else if (req->format == "turtle") {
+    kb_->exportTo(req->path, semweb::TURTLE);
+    res->success = true;
+  } else {
+    RCLCPP_ERROR(get_logger(), "Unsupported export format: %s", req->format.c_str());
+    res->success = false;
+  }
 }

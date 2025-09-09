@@ -1,60 +1,45 @@
-FROM ros:noetic-ros-core
-MAINTAINER Sascha Jongebloed, jongebloed@uni-bremen.de
+FROM ros:jazzy-ros-core-noble
+LABEL maintainer="Sascha Jongebloed <jongebloed@uni-bremen.de>"
 
+# Use bash for shell commands (to source setup.bash)
+SHELL ["/bin/bash", "-lc"]
+
+# SWI-Prolog runtime location
 ENV SWI_HOME_DIR=/usr/lib/swi-prolog
-ENV LD_LIBRARY_PATH=/usr/lib/swi-prolog/lib/x86_64-linux:$LD_LIBRARY_PATH
+ENV LD_LIBRARY_PATH=/usr/lib/swi-prolog/lib/x86_64-linux:${LD_LIBRARY_PATH}
 
-RUN apt-get update && apt-get install -y \
-    software-properties-common && \
-    apt-add-repository ppa:swi-prolog/stable && \
-    apt-get update && apt-get install -y \
-    gdb \
-    g++ \
-    clang \
-    cmake \
-    make \
-    libeigen3-dev \
-    libspdlog-dev \
-    libraptor2-dev \
-    librdf0-dev \
-    libgtest-dev \
-    libboost-python-dev \
-    libboost-serialization-dev \
-    libboost-program-options-dev \
-    libfmt-dev \
-    mongodb-clients \
-    libmongoc-1.0-0 \
-    libmongoc-dev \
-    doxygen \
-    graphviz \
-    python3 \
-    python3-dev \
-    python3-pip \
-    python3-venv \
-    python-is-python3 \
-    python3-catkin-pkg \
-    python3-catkin-tools \
-    git \
-    ros-noetic-catkin \
-    ros-noetic-tf2-geometry-msgs \
-    swi-prolog*
+# Install OS & ROS 2 build dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      curl gnupg2 lsb-release git software-properties-common \
+      python3-colcon-common-extensions python3-rosdep python3-vcstool \
+      gdb g++ clang cmake make \
+      libeigen3-dev libspdlog-dev libraptor2-dev librdf0-dev \
+      libgtest-dev libboost-all-dev libboost-python-dev libboost-serialization-dev \
+      libboost-program-options-dev libfmt-dev \
+      libmongoc-1.0-0 libmongoc-dev \
+      doxygen graphviz \
+      python3 python3-dev python3-pip python3-venv python-is-python3 \
+      swi-prolog* && \
+    rm -rf /var/lib/apt/lists/*
 
-RUN mkdir /catkin_ws
-RUN mkdir /catkin_ws/src
+# Initialize rosdep for resolving ROS 2 package dependencies
+RUN rosdep init && rosdep update
 
-# Build workspace with knowrob
-WORKDIR /catkin_ws/src
+# Prepare a mixed workspace containing both KnowRob and knowrob_ros
+WORKDIR /ros2_ws/src
+# Clone KnowRob core (catkin-based)
 RUN git clone https://github.com/knowrob/knowrob.git
-WORKDIR /catkin_ws
-RUN /usr/bin/catkin init
-RUN . /opt/ros/noetic/setup.sh && /usr/bin/catkin build
+# Overlay your knowrob_ros package
+ADD . /ros2_ws/src/knowrob_ros
 
-# Build workspace with knowrob_ros
-WORKDIR /catkin_ws/src
-ADD . /catkin_ws/src/knowrob_ros
-WORKDIR /catkin_ws
-RUN . /opt/ros/noetic/setup.sh && /usr/bin/catkin build
+# Build both packages together so knowrobConfig.cmake is generated
+WORKDIR /ros2_ws
+RUN source /opt/ros/jazzy/setup.bash && \
+    # install any ROS2 deps via rosdep (skip catkin) then build both packages
+    rosdep install --from-paths src --ignore-src -r -y --skip-keys=catkin && \
+    colcon build --symlink-install
 
+# Copy startup scripts into the image
 COPY run_knowrob.sh /run_knowrob.sh
 COPY run_knowrob_local.sh /run_knowrob_local.sh
 
